@@ -37,97 +37,11 @@ public class VideoRestController {
         String fileName =  gcpDataUtil.saveNewVideoInBucket(file);
         return ResponseEntity.ok(fileName);
     }
-    @GetMapping("/video")
-    public ResponseEntity<StreamingResponseBody> getVideoFromGoogleStorage(
-            @RequestParam("fileName")String fileName,
-            @RequestHeader(value = "Range", required = false)
-            String rangeHeader) throws IOException {
-        return gcpDataUtil.loadPartialVideoFile(fileName, rangeHeader);
-    }
 
-    @GetMapping("/full-video")
-    public ResponseEntity<byte[]> getFullVideoFromGcp(@RequestParam String fileName){
-        Blob blob = bucket.get(fileName);
-        byte[] content = blob.getContent();
-        HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.add("Content-Type", "video/mp4");
-        return new ResponseEntity<>(content, httpHeaders, HttpStatus.OK);
-    }
     @GetMapping("/video-stream")
     public ResponseEntity<StreamingResponseBody> getVideo(@RequestParam String fileName,
             @RequestHeader(value = "Range", required = false) String rangeHeader){
-        StreamingResponseBody responseStream;
-//        byte[] buffer = new byte[1024];
-        final HttpHeaders responseHeaders = new HttpHeaders();
-        try {
-
-        Blob blob = bucket.get(fileName);
-        if (rangeHeader == null){
-            responseHeaders.add("Content-Type", "video/mp4");
-            responseHeaders.add("Content-Length", blob.getSize().toString());
-
-            responseStream = outputStream -> {
-                 long position = 0;
-                try (ReadChannel reader = blob.reader()) {
-                        reader.seek(position);
-                        ByteBuffer bytes = ByteBuffer.allocate(1024);
-                        while (reader.read(bytes) > 0) {
-                            bytes.flip();
-                            outputStream.write(bytes.array());
-                            bytes.clear();
-                        }
-                            outputStream.flush();
-                }
-
-
-            };
-            return new ResponseEntity<StreamingResponseBody>
-                    (responseStream, responseHeaders, HttpStatus.OK);
-        }
-
-
-            String[] ranges = rangeHeader.split("-");
-            Long rangeStart = Long.parseLong(ranges[0].substring(6));
-            Long rangeEnd;
-            if (ranges.length > 1) {
-                rangeEnd = Long.parseLong(ranges[1]);
-            }
-            else {
-                rangeEnd = blob.getSize() - 1;
-            }
-
-            if (blob.getSize() < rangeEnd) {
-                rangeEnd = blob.getSize() - 1;
-            }
-
-            String contentLength = String.valueOf((rangeEnd - rangeStart) + 1);
-            responseHeaders.add("Content-Type", "video/mp4");
-            responseHeaders.add("Content-Length", contentLength);
-            responseHeaders.add("Accept-Ranges", "bytes");
-            responseHeaders.add("Content-Range", "bytes" + " " +
-                    rangeStart + "-" + rangeEnd + "/" + blob.getSize());
-            final Long _rangeEnd = rangeEnd;
-            responseStream = outputStream -> {
-                    long position = rangeStart;
-                try (ReadChannel reader = blob.reader()) {
-                    reader.seek(position);
-                    ByteBuffer bytes = ByteBuffer.allocate(1024);
-                    while (reader.read(bytes) > 0) {
-                        bytes.flip();
-                        outputStream.write(bytes.array());
-                        bytes.clear();
-                    }
-                    outputStream.flush();
-                }
-            };
-
-            return new ResponseEntity<StreamingResponseBody>
-                    (responseStream, responseHeaders, HttpStatus.PARTIAL_CONTENT);
-        }catch (Exception e){
-            log.error("Error while getVideo IN REST CONTROLLER");
-            throw new RuntimeException("Error while getVideo IN REST CONTROLLER");
-        }
-
+        return gcpDataUtil.getVideoFromGcs(fileName, rangeHeader);
     }
 
 

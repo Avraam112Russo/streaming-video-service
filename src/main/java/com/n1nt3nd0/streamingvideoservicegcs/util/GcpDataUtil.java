@@ -65,189 +65,80 @@ public class GcpDataUtil {
 
     }
 
-    public ResponseEntity<StreamingResponseBody> loadPartialVideoFile(String fileName, String rangeValues) throws IOException {
-        if (!StringUtils.hasText(rangeValues))
-        {
-            System.out.println("Read all media file content.");
-            return loadEntireMediaFile(fileName);
-        }else
-        {
-            long rangeStart = 0L;
-            long rangeEnd = 0L;
-
-            if (!StringUtils.hasText(fileName))
-            {
-                throw new IllegalArgumentException
-                        ("The full path to the media file is NULL or empty.");
-            }
-
-
-//            Path filePath = Paths.get(localMediaFilePath);
-//            if (!filePath.toFile().exists())
-//            {
-//                throw new FileNotFoundException("The media file does not exist.");
-//            }
-            BlobId blobId = BlobId.of(bucket.getName(), fileName);
-            Blob blob = storage.get(blobId);
-            long fileSize = blob.getSize();
-
-            System.out.println("Read rang seeking value.");
-            System.out.println("Rang values: [" + rangeValues + "]");
-
-            int dashPos = rangeValues.indexOf("-");
-            if (dashPos > 0 && dashPos <= (rangeValues.length() - 1))
-            {
-                String[] rangesArr = rangeValues.split("-");
-
-                if (rangesArr != null && rangesArr.length > 0)
-                {
-                    System.out.println("ArraySize: " + rangesArr.length);
-                    if (StringUtils.hasText(rangesArr[0]))
-                    {
-                        System.out.println("Rang values[0]: [" + rangesArr[0] + "]");
-                        String valToParse = numericStringValue(rangesArr[0]);
-                        rangeStart = safeParseStringValuetoLong(valToParse, 0L);
-                    }
-                    else
-                    {
-                        rangeStart = 0L;
-                    }
-
-                    if (rangesArr.length > 1)
-                    {
-                        System.out.println("Rang values[1]: [" + rangesArr[1] + "]");
-                        String valToParse = numericStringValue(rangesArr[1]);
-                        rangeEnd = safeParseStringValuetoLong(valToParse, 0L);
-                    }
-                    else
-                    {
-                        if (fileSize > 0)
-                        {
-                            rangeEnd = fileSize - 1L;
-                        }
-                        else
-                        {
-                            rangeEnd = 0L;
-                        }
-                    }
-                }
-            }
-
-            if (rangeEnd == 0L && fileSize > 0L)
-            {
-                rangeEnd = fileSize - 1;
-            }
-            if (fileSize < rangeEnd)
-            {
-                rangeEnd = fileSize - 1;
-            }
-
-            System.out.println(String.format("Parsed Range Values: [%d] - [%d]",
-                    rangeStart, rangeEnd));
-
-            return loadPartialMediaFile(blob, rangeStart, rangeEnd);
-        }
-    }
-
-    public ResponseEntity<StreamingResponseBody> loadPartialMediaFile(Blob blob, long fileStartPos, long fileEndPos) throws IOException {
-//        Path filePath = Paths.get(localMediaFilePath);
-//        if (!filePath.toFile().exists())
-//        {
-//            throw new FileNotFoundException("The media file does not exist.");
-//        }
-
+    public ResponseEntity<StreamingResponseBody> getVideoFromGcs(String fileName, String rangeHeader){
         StreamingResponseBody responseStream;
-        long fileSize = blob.getSize();
-        if (fileStartPos < 0L) {
-            fileStartPos = 0L;
-        }
-
-        if (fileSize > 0L) {
-            if (fileStartPos >= fileSize) {
-                fileStartPos = fileSize - 1L;
-            }
-
-            if (fileEndPos >= fileSize) {
-                fileEndPos = fileSize - 1L;
-            }
-        } else {
-            fileStartPos = 0L;
-            fileEndPos = 0L;
-        }
-
 //        byte[] buffer = new byte[1024];
-        String mimeType = "video/mp4";
-
         final HttpHeaders responseHeaders = new HttpHeaders();
-        String contentLength = String.valueOf((fileEndPos - fileStartPos) + 1);
-        responseHeaders.add("Content-Type", mimeType);
-        responseHeaders.add("Content-Length", contentLength);
-        responseHeaders.add("Accept-Ranges", "bytes");
-        responseHeaders.add("Content-Range",
-                String.format("bytes %d-%d/%d", fileStartPos, fileEndPos, fileSize));
+        try {
 
-        final long fileStartPos2 = fileStartPos;
-        final long fileEndPos2 = fileEndPos;
-//        responseStream = os -> {
-//            RandomAccessFile file = new RandomAccessFile(localMediaFilePath, "r");
-//            try (file)
-//            {
-//                long pos = fileStartPos2;
-//                file.seek(pos);
-//                while (pos < fileEndPos2)
-//                {
-//                    file.read(buffer);
-//                    os.write(buffer);
-//                    pos += buffer.length;
-//                }
-//                os.flush();
-//            }
-//            catch (Exception e) {}
-//        };
+            Blob blob = bucket.get(fileName);
+            if (rangeHeader == null){
+                responseHeaders.add("Content-Type", "video/mp4");
+                responseHeaders.add("Content-Length", blob.getSize().toString());
+
+                responseStream = outputStream -> {
+                    long position = 0;
+                    try (ReadChannel reader = blob.reader()) {
+                        reader.seek(position);
+                        ByteBuffer bytes = ByteBuffer.allocate(1024);
+                        while (reader.read(bytes) > 0) {
+                            bytes.flip();
+                            outputStream.write(bytes.array());
+                            bytes.clear();
+                        }
+                        outputStream.flush();
+                    }
 
 
-        responseStream = outputStream -> {
-            BlobId blobId = BlobId.of(bucket.getName(), blob.getName());
-            try (ReadChannel from = storage.reader(blobId);
-            ) {
-                long pos = fileStartPos2;
-                from.seek(pos);
-                from.setChunkSize(9108);
-                ByteBuffer byteBuffer = ByteBuffer.allocate(9108);
-//                ByteStreams.copy(from, outputStream);
-                from.read(byteBuffer);
-                outputStream.write(byteBuffer.array());
-                System.out.println("Download video chunk....");
+                };
+                return new ResponseEntity<StreamingResponseBody>
+                        (responseStream, responseHeaders, HttpStatus.OK);
             }
-            outputStream.flush();
-        };
 
-        return new ResponseEntity<StreamingResponseBody>
-                (responseStream, responseHeaders, HttpStatus.PARTIAL_CONTENT);
+
+            String[] ranges = rangeHeader.split("-");
+            Long rangeStart = Long.parseLong(ranges[0].substring(6));
+            Long rangeEnd;
+            if (ranges.length > 1) {
+                rangeEnd = Long.parseLong(ranges[1]);
+            }
+            else {
+                rangeEnd = blob.getSize() - 1;
+            }
+
+            if (blob.getSize() < rangeEnd) {
+                rangeEnd = blob.getSize() - 1;
+            }
+
+            String contentLength = String.valueOf((rangeEnd - rangeStart) + 1);
+            responseHeaders.add("Content-Type", "video/mp4");
+            responseHeaders.add("Content-Length", contentLength);
+            responseHeaders.add("Accept-Ranges", "bytes");
+            responseHeaders.add("Content-Range", "bytes" + " " +
+                    rangeStart + "-" + rangeEnd + "/" + blob.getSize());
+            final Long _rangeEnd = rangeEnd;
+            responseStream = outputStream -> {
+                long position = rangeStart;
+                try (ReadChannel reader = blob.reader()) {
+                    reader.seek(position);
+                    ByteBuffer bytes = ByteBuffer.allocate(1024);
+                    while (reader.read(bytes) > 0) {
+                        bytes.flip();
+                        outputStream.write(bytes.array());
+                        bytes.clear();
+                    }
+                    outputStream.flush();
+                }
+            };
+
+            return new ResponseEntity<StreamingResponseBody>
+                    (responseStream, responseHeaders, HttpStatus.PARTIAL_CONTENT);
+        }catch (Exception e){
+            log.error("Error while getVideo IN REST CONTROLLER");
+            throw new RuntimeException("Error while getVideo IN REST CONTROLLER");
+        }
+
     }
-
-    public ResponseEntity<StreamingResponseBody> loadEntireMediaFile(String fileName) throws IOException {
-        BlobId blobId = BlobId.of(bucket.getName(), fileName);
-        Blob blob = storage.get(blobId);
-        long fileSize = blob.getSize();
-        if (!blob.exists()) {
-            throw new FileNotFoundException("The media file does not exist.");
-        }
-
-        long endPos = fileSize;
-        if (fileSize > 0L) {
-            endPos = fileSize - 1;
-        }
-        else {
-            endPos = 0L;
-        }
-
-        ResponseEntity<StreamingResponseBody> retVal =
-                loadPartialMediaFile(blob, 0, endPos);
-
-        return retVal;
-    }
-
     private File converted(MultipartFile multipartFile) {
 
         try {
