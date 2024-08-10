@@ -31,20 +31,7 @@ import java.util.UUID;
 public class GcpDataUtil {
     private final Storage storage;
     private final Bucket bucket;
-//    @SneakyThrows
-//    public String saveNewVideoInBucket(MultipartFile multipartFile) {
-//        try {
-//            byte[] videoFilesAsBytesArray = FileUtils.readFileToByteArray(converted(multipartFile));
-//            String fileName = UUID.randomUUID().toString();
-//            ;
-//            Blob savedVideo = bucket.create(fileName, videoFilesAsBytesArray);
-//            log.info("Video file saved successfully: {}", savedVideo.toString());
-//            return fileName;
-//        } catch (Exception e) {
-//            log.error("An error has occurred while saveNewVideoInBucket IN GcpDataUtil: {}", e.getMessage());
-//            throw new RuntimeException("An error has occurred while saveNewVideoInBucket IN GcpDataUtil");
-//        }
-//    }
+
 
     public String saveNewVideoInBucket(MultipartFile multipartFile){
         try {
